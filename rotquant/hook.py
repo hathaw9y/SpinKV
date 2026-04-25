@@ -25,8 +25,6 @@ class Hook:
         self.k_ropes = defaultdict(list)     # post-RoPE, rotated (LLaMA only)
         self.v = defaultdict(list)
         self.k_grad = defaultdict(list)
-        self.q_ropes_grad = defaultdict(list)
-        self.k_ropes_grad = defaultdict(list)
         self.v_grad = defaultdict(list)
 
         # non-rotated (raw) activations

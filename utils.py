@@ -92,8 +92,7 @@ def collect_qkv_wikitext(model, tokenizer, hook, n_samples=16, seq_len=2048, dev
         loss.backward()
         update_grad(hook.v, hook.v_grad, i)
         if model.model_type == 'llama2':
-            update_grad(hook.q_ropes, hook.q_ropes_grad, i)
-            update_grad(hook.k_ropes, hook.k_ropes_grad, i)
+            update_grad(hook.k_ropes, hook.k_grad, i)
         elif model.model_type == 'opt':
             update_grad(hook.k, hook.k_grad, i)
 

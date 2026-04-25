@@ -39,7 +39,6 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
         """post-RoPE 단계에서 rotated/raw 모두 수집."""
         if not hook.collect:
             return
-        query_states.retain_grad()
         key_states.retain_grad()
         value_states.retain_grad()
         hook.v[layer_idx].append(value_states)
