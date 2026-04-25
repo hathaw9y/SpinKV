@@ -75,8 +75,11 @@ def main():
 
     def _learn_mant_and_save(act_kind: str, grad_kind: str, cb_kind: str, rotated: bool):
         x = _load(act_root, act_kind, rotated)
+        block_size = args.mant_block_size
+        if x.shape[-1] % block_size != 0:
+            block_size = x.shape[-1]
         _, x_mant, _ = convert2fp16(
-            x, block_size=args.mant_block_size, mbits=args.mant_bits,
+            x, block_size=block_size, mbits=args.mant_bits,
         )
         # gradient는 항상 rotated 도메인의 것을 Fisher weight로 사용
         x_g = _load(act_root, grad_kind, rotated=True)

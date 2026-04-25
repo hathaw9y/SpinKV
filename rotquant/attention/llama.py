@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 
+from utils import bfp_quantize_activation
 from ..quantization import vq_quantize, vq_quantize_mantissa
 
 
@@ -129,6 +130,13 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
 
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
+        if hook.BFP:
+            query_states = bfp_quantize_activation(
+                query_states, hook.BFP_block_size, hook.BFP_bits,
+            )
+            key_states = bfp_quantize_activation(
+                key_states, hook.BFP_block_size, hook.BFP_bits,
+            )
 
         if attention_mask is not None and attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
             raise ValueError(

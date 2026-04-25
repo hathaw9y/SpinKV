@@ -34,6 +34,8 @@ def vq_quantize(kv: torch.Tensor, codebook: torch.Tensor, n_channel: int = 4) ->
 def vq_quantize_mantissa(kv: torch.Tensor, codebook: torch.Tensor,
                          n_channel: int = 4, mbits: int = 8,
                          block_size: int = 128) -> torch.Tensor:
+    if kv.shape[-1] % block_size != 0:
+        block_size = kv.shape[-1]
     _, mantissa, real_exp = convert2fp16(kv, block_size=block_size, mbits=mbits)
     q_mantissa = vq_quantize(mantissa.to(kv.dtype), codebook, n_channel)
     restored = restore_fp16_from_mantissa(

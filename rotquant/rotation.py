@@ -2,6 +2,8 @@ import types
 import torch
 import torch.nn as nn
 
+from utils import bfp_quantize_activation
+
 
 # ---------------- absorb R into weights ----------------
 def absorb_R_input(linear: nn.Linear, R: torch.Tensor) -> None:
@@ -36,12 +38,29 @@ def absorb_R_into_embedding(model, R: torch.Tensor) -> None:
 
 
 # ---------------- online rotation ----------------
-def patch_online_rotate(linear: nn.Linear, R: torch.Tensor) -> None:
+def patch_online_rotate(linear: nn.Linear, R: torch.Tensor, hook=None) -> None:
     """forward 시점에 입력을 R로 회전시키는 monkey patch."""
     R_local = R
 
     def forward_fn(self, x):
         x = x @ R_local.to(x.dtype)
+        if hook is not None and hook.BFP:
+            x = bfp_quantize_activation(x, hook.BFP_block_size, hook.BFP_bits)
         return torch.nn.functional.linear(x, self.weight, self.bias)
+
+    linear._spinkv_online_rotate = True
+    linear.forward = types.MethodType(forward_fn, linear)
+
+
+def patch_linear_bfp(linear: nn.Linear, hook) -> None:
+    if getattr(linear, '_spinkv_online_rotate', False):
+        return
+
+    org_forward = linear.forward
+
+    def forward_fn(self, x):
+        if hook.BFP:
+            x = bfp_quantize_activation(x, hook.BFP_block_size, hook.BFP_bits)
+        return org_forward(x)
 
     linear.forward = types.MethodType(forward_fn, linear)

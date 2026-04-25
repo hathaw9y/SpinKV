@@ -28,6 +28,10 @@ def parse_args():
                    help="mantissa codebook으로 CQ 실행")
     p.add_argument("--mant_bits", type=int, default=8)
     p.add_argument("--mant_block_size", type=int, default=128)
+    p.add_argument("--BFP", action="store_true",
+                   help="linear input activation과 attention QK matmul 입력에 BFP 적용")
+    p.add_argument("--BFP_bits", type=int, default=8)
+    p.add_argument("--BFP_block_size", type=int, default=128)
     p.add_argument("--act_dir", type=str, default="activations")
     p.add_argument("--cb_dir", type=str, default="codebooks")
     return p.parse_args()
@@ -85,6 +89,9 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook.mant = args.mant
     hook.mant_bits = args.mant_bits
     hook.mant_block_size = args.mant_block_size
+    hook.BFP = args.BFP
+    hook.BFP_bits = args.BFP_bits
+    hook.BFP_block_size = args.BFP_block_size
 
     if hook.cq:
         rotated = not args.no_rotate

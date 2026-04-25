@@ -4,7 +4,10 @@ import torch.nn as nn
 from hadamard_utils import random_hadamard_matrix
 
 from .fusion import fuse_norms
-from .rotation import absorb_R_input, absorb_R_output, absorb_R_into_embedding, patch_online_rotate
+from .rotation import (
+    absorb_R_input, absorb_R_output, absorb_R_into_embedding,
+    patch_online_rotate, patch_linear_bfp,
+)
 from .attention.llama import patch_llama_attention
 from .attention.opt import patch_opt_attention
 
@@ -39,7 +42,7 @@ def _apply_llama_rotate(model, device, hook) -> None:
         absorb_R_output(mlp.down_proj, R_res)
 
         absorb_R_input(mlp.down_proj, R_mlp)
-        patch_online_rotate(mlp.down_proj, R_mlp)
+        patch_online_rotate(mlp.down_proj, R_mlp, hook)
 
         patch_llama_attention(attn, R_head, layer_idx, hook)
 
@@ -72,7 +75,7 @@ def _apply_opt_rotate(model, device, hook) -> None:
         absorb_R_output(layer.fc2, R_res)
 
         absorb_R_input(layer.fc2, R_ffn)
-        patch_online_rotate(layer.fc2, R_ffn)
+        patch_online_rotate(layer.fc2, R_ffn, hook)
 
         patch_opt_attention(attn, R_head, layer_idx, hook)
 
@@ -102,6 +105,8 @@ def apply_rotate(model, device, hook, rotate: bool = True) -> None:
     add_model_type(model)
     if not rotate:
         _patch_attention_only(model, hook)
+        if hook.BFP:
+            _patch_linear_bfp(model, hook)
         return
 
     fuse_norms(model)
@@ -111,3 +116,12 @@ def apply_rotate(model, device, hook, rotate: bool = True) -> None:
         _apply_opt_rotate(model, device, hook)
     else:
         raise ValueError(f"Unsupported model_type: {model.model_type}")
+
+    if hook.BFP:
+        _patch_linear_bfp(model, hook)
+
+
+def _patch_linear_bfp(model, hook) -> None:
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            patch_linear_bfp(module, hook)

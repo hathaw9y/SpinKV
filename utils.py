@@ -39,6 +39,14 @@ def restore_fp16_from_mantissa(mantissa: torch.Tensor, real_exp: torch.Tensor,
     return mantissa * (2 ** truncate_bits) / 1024.0 * real_exp
 
 
+def bfp_quantize_activation(x: torch.Tensor, block_size: int = 128,
+                            mbits: int = 8) -> torch.Tensor:
+    if x.shape[-1] % block_size != 0:
+        block_size = x.shape[-1]
+    restored, _, _ = convert2fp16(x, block_size=block_size, mbits=mbits)
+    return restored.to(x.dtype)
+
+
 # ==================== PPL ====================
 @torch.no_grad()
 def eval_ppl_wikitext(model, tokenizer, seq_len=2048, device="cuda"):

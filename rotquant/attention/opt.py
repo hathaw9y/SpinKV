@@ -2,6 +2,7 @@ import types
 import torch
 import torch.nn as nn
 
+from utils import bfp_quantize_activation
 from ..quantization import vq_quantize, vq_quantize_mantissa
 
 
@@ -84,6 +85,13 @@ def patch_opt_attention(attn_module, R_head, layer_idx: int, hook) -> None:
         query_states = query_states.view(*proj_shape)
         key_states = key_states.view(*proj_shape)
         value_states = value_states.view(*proj_shape)
+        if hook.BFP:
+            query_states = bfp_quantize_activation(
+                query_states, hook.BFP_block_size, hook.BFP_bits,
+            )
+            key_states = bfp_quantize_activation(
+                key_states, hook.BFP_block_size, hook.BFP_bits,
+            )
 
         src_len = key_states.size(1)
         attn_weights = torch.bmm(query_states, key_states.transpose(1, 2))

@@ -13,6 +13,9 @@ class Hook:
     mant = False
     mant_bits = 8
     mant_block_size = 128
+    BFP = False
+    BFP_bits = 8
+    BFP_block_size = 128
 
     def __init__(self):
         # rotated activations
