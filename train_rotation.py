@@ -20,7 +20,7 @@ def parse_args():
     p.add_argument("--tol", type=float, default=1e-4)
     p.add_argument("--atol", type=float, default=1e-8)
     p.add_argument("--patience", type=int, default=100)
-    p.add_argument("--max_samples", type=int, default=8192)
+    p.add_argument("--max_samples", type=int, default=32768)
     return p.parse_args()
 
 
