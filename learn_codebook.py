@@ -96,9 +96,9 @@ def main():
 
     if is_llama:
         targets = [
-            ('k',      'k_rope_grad', 'k'),
+            ('k',      'k_grad', 'k'),
             ('v',      'v_grad',      'v'),
-            ('k_rope', 'k_rope_grad', 'k_rope'),
+            ('k_rope', 'k_grad', 'k_rope'),
         ]
     else:
         targets = [
@@ -107,6 +107,8 @@ def main():
         ]
 
     for rotated in (True, False):
+        if not os.path.exists(_act_path(act_root, targets[0][0], rotated)):
+            continue
         print(f"\n=== rotated={rotated} ===")
         for act_kind, grad_kind, cb_kind in targets:
             if args.mant:
