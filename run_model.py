@@ -160,16 +160,6 @@ def _save_activations(model, hook: Hook, model_dir: str, rotated: bool,
         _save_one(_stack_by_layer(hook.k_ropes),      out_dir, 'k_rope',      rotated)
     _save_one(_stack_by_layer(hook.k_grad), out_dir, 'k_grad', rotated)
 
-    if not rotated:
-        return
-
-    # raw tensors
-    _save_one(_stack_by_layer(hook.k_raw), out_dir, 'k', rotated=False)
-    _save_one(_stack_by_layer(hook.v_raw), out_dir, 'v', rotated=False)
-    if model.model_type == 'llama2':
-        _save_one(_stack_by_layer(hook.q_ropes_raw), out_dir, 'q_rope', rotated=False)
-        _save_one(_stack_by_layer(hook.k_ropes_raw), out_dir, 'k_rope', rotated=False)
-
 
 def _stack_list(xs: list[torch.Tensor]) -> torch.Tensor:
     return torch.stack(xs, dim=0)

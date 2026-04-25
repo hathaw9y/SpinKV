@@ -13,15 +13,13 @@ def patch_opt_attention(attn_module, R_head, layer_idx: int, hook) -> None:
     """
     rotate = R_head is not None
 
-    def _maybe_collect(key_states, value_states, key_raw, value_raw):
+    def _maybe_collect(key_states, value_states):
         if not hook.collect:
             return
         key_states.retain_grad()
         value_states.retain_grad()
         hook.k[layer_idx].append(key_states)
         hook.v[layer_idx].append(value_states)
-        hook.k_raw[layer_idx].append(key_raw.detach().cpu())
-        hook.v_raw[layer_idx].append(value_raw.detach().cpu())
 
     def _maybe_quantize(key_states, value_states):
         if not hook.cq:
@@ -41,13 +39,11 @@ def patch_opt_attention(attn_module, R_head, layer_idx: int, hook) -> None:
         return key_states, value_states
 
     def rotate_head(query_states, key_states, value_states):
-        # rotation 직전 값을 raw 사본으로 보관
-        key_raw, value_raw = key_states, value_states
         if rotate:
             R_h = R_head.to(query_states.dtype)
             query_states = query_states @ R_h
             key_states = key_states @ R_h
-        _maybe_collect(key_states, value_states, key_raw, value_raw)
+        _maybe_collect(key_states, value_states)
         key_states, value_states = _maybe_quantize(key_states, value_states)
         return query_states, key_states, value_states
 
