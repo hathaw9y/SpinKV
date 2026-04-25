@@ -41,8 +41,9 @@ def _apply_llama_rotate(model, device, hook) -> None:
         absorb_R_output(attn.o_proj, R_res)
         absorb_R_output(mlp.down_proj, R_res)
 
-        absorb_R_input(mlp.down_proj, R_mlp)
-        patch_online_rotate(mlp.down_proj, R_mlp, hook)
+        if not hook.offline:
+            absorb_R_input(mlp.down_proj, R_mlp)
+            patch_online_rotate(mlp.down_proj, R_mlp, hook)
 
         patch_llama_attention(attn, R_head, layer_idx, hook)
 
@@ -74,8 +75,9 @@ def _apply_opt_rotate(model, device, hook) -> None:
         absorb_R_input(layer.fc1, R_res)
         absorb_R_output(layer.fc2, R_res)
 
-        absorb_R_input(layer.fc2, R_ffn)
-        patch_online_rotate(layer.fc2, R_ffn, hook)
+        if not hook.offline:
+            absorb_R_input(layer.fc2, R_ffn)
+            patch_online_rotate(layer.fc2, R_ffn, hook)
 
         patch_opt_attention(attn, R_head, layer_idx, hook)
 
@@ -86,7 +88,7 @@ def _apply_opt_rotate(model, device, hook) -> None:
 
 
 def _patch_attention_only(model, hook) -> None:
-    """no_rotate 모드: 모델 weight 회전 없이 attention patch만 적용 (R_head=None)."""
+    """rotation 없이 attention patch만 적용 (R_head=None)."""
     if model.model_type == 'llama2':
         for layer_idx, layer in enumerate(model.model.layers):
             patch_llama_attention(layer.self_attn, None, layer_idx, hook)

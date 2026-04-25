@@ -16,6 +16,7 @@ class Hook:
     bfp = False
     bfp_bits = 8
     bfp_block_size = 128
+    offline = False
 
     def __init__(self):
         # rotated activations

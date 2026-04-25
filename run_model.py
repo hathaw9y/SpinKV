@@ -16,8 +16,10 @@ def parse_args():
     p.add_argument("--ppl_seq_len", type=int, default=2048)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", type=str, default="cuda")
-    p.add_argument("--no_rotate", action="store_true",
-                   help="모델 회전 없이 실행 (collect/cq는 attention patch만으로 동작)")
+    p.add_argument("--rotate", type=str, choices=["hadamard"], default=None,
+                   help="rotation 방식 선택")
+    p.add_argument("--offline", action="store_true",
+                   help="MLP/FFN online rotation 비활성화")
     p.add_argument("--collect", action="store_true", help="Collecting KV")
     p.add_argument("--cq", action="store_true", help="Coupled Quantization KV")
     p.add_argument("--pre_rope", action="store_true", help="Quantization Pre KV")
@@ -92,9 +94,10 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook.bfp = args.bfp
     hook.bfp_bits = args.bfp_bits
     hook.bfp_block_size = args.bfp_block_size
+    hook.offline = args.offline
 
     if hook.cq:
-        rotated = not args.no_rotate
+        rotated = args.rotate == 'hadamard'
         cb_root = os.path.join(args.cb_dir, model_dir)
 
         def _cb(kind):
@@ -169,8 +172,8 @@ def main():
 
     hook = _build_hook(args, model_dir)
 
-    rotate = not args.no_rotate
-    print(f"Apply rotate={rotate}")
+    rotate = args.rotate == 'hadamard'
+    print(f"Apply rotate={args.rotate or 'none'}")
     apply_rotate(model, args.device, hook, rotate=rotate)
 
     if args.collect:

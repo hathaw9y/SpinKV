@@ -10,7 +10,7 @@ from ..quantization import vq_quantize, vq_quantize_mantissa
 def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
     """
     LLaMA self-attention patch.
-    R_head=None이면 head-dim Hadamard 회전을 적용하지 않음 (no_rotate 모드).
+    R_head=None이면 head-dim Hadamard 회전을 적용하지 않음.
     """
     rotate = R_head is not None
 
@@ -72,7 +72,7 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
 
         # ---- pre-RoPE collection / quantization ----
         if hook.collect:
-            # rotated pre-RoPE key (rotate=False면 raw와 동일)
+            # rotated pre-RoPE key (rotation이 없으면 raw와 동일)
             if rotate:
                 R_h = R_head.to(key_states.dtype)
                 k_pre_rot = key_states @ R_h
