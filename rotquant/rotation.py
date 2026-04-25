@@ -1,0 +1,47 @@
+import types
+import torch
+import torch.nn as nn
+
+
+# ---------------- absorb R into weights ----------------
+def absorb_R_input(linear: nn.Linear, R: torch.Tensor) -> None:
+    """입력 측 회전: W <- W @ R"""
+    dtype = linear.weight.dtype
+    W = linear.weight.data.double()
+    linear.weight.data = (W @ R.double()).to(dtype)
+
+
+def absorb_R_output(linear: nn.Linear, R: torch.Tensor) -> None:
+    """출력 측 회전: W <- R^T @ W, b <- b @ R"""
+    dtype = linear.weight.dtype
+    W = linear.weight.data.double()                       # [out, in]
+    linear.weight.data = (R.double().T @ W).to(dtype)
+    if linear.bias is not None:
+        b = linear.bias.data.double()
+        linear.bias.data = (b @ R.double()).to(dtype)
+
+
+def absorb_R_into_embedding(model, R: torch.Tensor) -> None:
+    if model.model_type == 'llama2':
+        embs = [model.model.embed_tokens]
+    elif model.model_type == 'opt':
+        embs = [model.model.decoder.embed_tokens, model.model.decoder.embed_positions]
+    else:
+        raise ValueError(f"Unsupported model_type: {model.model_type}")
+
+    for emb in embs:
+        dtype = emb.weight.dtype
+        W = emb.weight.data.double()
+        emb.weight.data = (W @ R.double()).to(dtype)
+
+
+# ---------------- online rotation ----------------
+def patch_online_rotate(linear: nn.Linear, R: torch.Tensor) -> None:
+    """forward 시점에 입력을 R로 회전시키는 monkey patch."""
+    R_local = R
+
+    def forward_fn(self, x):
+        x = x @ R_local.to(x.dtype)
+        return torch.nn.functional.linear(x, self.weight, self.bias)
+
+    linear.forward = types.MethodType(forward_fn, linear)
