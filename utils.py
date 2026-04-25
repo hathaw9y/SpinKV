@@ -1,5 +1,44 @@
 import torch
 from tqdm import tqdm
+
+
+def convert2fp16(x: torch.Tensor, block_size: int = 128,
+                 mbits: int = 8) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    shape = x.shape
+    flat = x.reshape(*x.shape[:-1], -1, block_size).half()
+
+    int_bits = flat.view(torch.int16)
+    elem_exp = ((int_bits >> 10) & 0x1F)
+    shared_exp = elem_exp.max(dim=-1, keepdim=True).values
+
+    shift = (shared_exp - elem_exp).clamp(min=0, max=10)
+
+    mantissa = (int_bits & 0x03FF) | 0x0400
+    mantissa_shifted = mantissa >> shift
+
+    # 각 원소별 첫번째 1 다음 mbits-1개 비트만 남기고 나머지 0
+    truncate_bits = 11 - mbits + 1
+    round_bit = (mantissa_shifted >> (truncate_bits - 1)) & 1
+    mantissa_truncated = ((mantissa_shifted >> truncate_bits) + round_bit)
+
+    sign = ((int_bits >> 15) & 0x1).half()
+    mantissa_signed = mantissa_truncated.to(torch.int16) * (1 - 2 * sign)
+
+    restored = (1 - 2 * sign).half() \
+            * (mantissa_truncated << truncate_bits).half() / 1024.0 \
+            * (2.0 ** (shared_exp - 15)).half()
+
+    real_exp = (2 ** (shared_exp - 15).half()).expand(*shared_exp.shape[:-1], block_size)
+
+    return restored.reshape(shape), mantissa_signed.reshape(shape), real_exp.reshape(shape)
+
+
+def restore_fp16_from_mantissa(mantissa: torch.Tensor, real_exp: torch.Tensor,
+                               mbits: int = 8) -> torch.Tensor:
+    truncate_bits = 11 - mbits + 1
+    return mantissa * (2 ** truncate_bits) / 1024.0 * real_exp
+
+
 # ==================== PPL ====================
 @torch.no_grad()
 def eval_ppl_wikitext(model, tokenizer, seq_len=2048, device="cuda"):

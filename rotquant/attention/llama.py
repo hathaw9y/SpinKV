@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 
-from ..quantization import vq_quantize
+from ..quantization import vq_quantize, vq_quantize_mantissa
 
 
 def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
@@ -17,12 +17,20 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
         if not hook.cq:
             return value_states
         v_cb = hook.v_cb[layer_idx].to(value_states.device, value_states.dtype)
+        if hook.mant:
+            return vq_quantize_mantissa(
+                value_states, v_cb, hook.channel, hook.mant_bits, hook.mant_block_size,
+            )
         return vq_quantize(value_states, v_cb, hook.channel)
 
     def _maybe_quantize_k_post_rope(key_states):
         if not (hook.cq and not hook.pre_rope):
             return key_states
         kr_cb = hook.kr_cb[layer_idx].to(key_states.device, key_states.dtype)
+        if hook.mant:
+            return vq_quantize_mantissa(
+                key_states, kr_cb, hook.channel, hook.mant_bits, hook.mant_block_size,
+            )
         return vq_quantize(key_states, kr_cb, hook.channel)
 
     def _maybe_collect_post_rope(key_states, value_states, key_raw, value_raw):
@@ -78,11 +86,23 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
                 R_h = R_head.to(key_states.dtype)
                 k_pre_rot = key_states @ R_h
                 k_cb = hook.k_cb[layer_idx].to(key_states.device, key_states.dtype)
-                k_pre_rot_q = vq_quantize(k_pre_rot, k_cb, hook.channel)
+                if hook.mant:
+                    k_pre_rot_q = vq_quantize_mantissa(
+                        k_pre_rot, k_cb, hook.channel,
+                        hook.mant_bits, hook.mant_block_size,
+                    )
+                else:
+                    k_pre_rot_q = vq_quantize(k_pre_rot, k_cb, hook.channel)
                 key_states = k_pre_rot_q @ R_h.T
             else:
                 k_cb = hook.k_cb[layer_idx].to(key_states.device, key_states.dtype)
-                key_states = vq_quantize(key_states, k_cb, hook.channel)
+                if hook.mant:
+                    key_states = vq_quantize_mantissa(
+                        key_states, k_cb, hook.channel,
+                        hook.mant_bits, hook.mant_block_size,
+                    )
+                else:
+                    key_states = vq_quantize(key_states, k_cb, hook.channel)
 
         # ---- RoPE ----
         kv_seq_len = key_states.shape[-2]

@@ -10,6 +10,9 @@ class Hook:
     kr_cb = None
     channel = 4
     pre_rope = False
+    mant = False
+    mant_bits = 8
+    mant_block_size = 128
 
     def __init__(self):
         # rotated activations

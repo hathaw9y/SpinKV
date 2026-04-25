@@ -24,6 +24,10 @@ def parse_args():
     p.add_argument("--n_channel", type=int, default=4)
     p.add_argument("--n_cluster", type=int, default=256,
                    help="codebook 파일 검색용 cluster 수")
+    p.add_argument("--mant", action="store_true",
+                   help="mantissa codebook으로 CQ 실행")
+    p.add_argument("--mant_bits", type=int, default=8)
+    p.add_argument("--mant_block_size", type=int, default=128)
     p.add_argument("--act_dir", type=str, default="activations")
     p.add_argument("--cb_dir", type=str, default="codebooks")
     return p.parse_args()
@@ -58,8 +62,11 @@ def _model_dir_name(model_id: str) -> str:
     return model_id.replace("/", "_")
 
 
-def _cb_filename(kind: str, rotated: bool, n_channel: int, n_cluster: int) -> str:
+def _cb_filename(kind: str, rotated: bool, n_channel: int, n_cluster: int,
+                 mant: bool = False) -> str:
     rot_tag = 'rot' if rotated else 'raw'
+    if mant:
+        kind = f"{kind}_mant"
     return f"{kind}_{rot_tag}_c{n_channel}_k{n_cluster}.pt"
 
 
@@ -75,13 +82,19 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook = Hook()
     hook.collect = args.collect
     hook.cq = args.cq
+    hook.mant = args.mant
+    hook.mant_bits = args.mant_bits
+    hook.mant_block_size = args.mant_block_size
 
     if hook.cq:
         rotated = not args.no_rotate
         cb_root = os.path.join(args.cb_dir, model_dir)
 
         def _cb(kind):
-            return os.path.join(cb_root, _cb_filename(kind, rotated, args.n_channel, args.n_cluster))
+            return os.path.join(
+                cb_root,
+                _cb_filename(kind, rotated, args.n_channel, args.n_cluster, args.mant),
+            )
 
         hook.v_cb = torch.load(_cb('v'))
         hook.channel = args.n_channel
