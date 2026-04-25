@@ -186,37 +186,48 @@ def _save_act_activations(hook: Hook, model_dir: str, rotated: bool,
 def _register_act_hooks(model, hook: Hook) -> list:
     handles = []
 
+    def _first_tensor(inputs, kwargs):
+        if len(inputs) > 0:
+            return inputs[0]
+        for key in ('hidden_states', 'input', 'inputs'):
+            if key in kwargs:
+                return kwargs[key]
+        for value in kwargs.values():
+            if torch.is_tensor(value):
+                return value
+        raise ValueError("forward pre-hook could not find tensor input")
+
     def _save_input_list(xs):
-        def _hook(_module, inputs):
-            xs.append(inputs[0].detach().cpu())
+        def _hook(_module, inputs, kwargs):
+            xs.append(_first_tensor(inputs, kwargs).detach().cpu())
         return _hook
 
     def _save_input_layer(d, layer_idx):
-        def _hook(_module, inputs):
-            d[layer_idx].append(inputs[0].detach().cpu())
+        def _hook(_module, inputs, kwargs):
+            d[layer_idx].append(_first_tensor(inputs, kwargs).detach().cpu())
         return _hook
 
     if model.model_type == 'llama2':
         for layer_idx, layer in enumerate(model.model.layers):
             handles.append(layer.self_attn.register_forward_pre_hook(
-                _save_input_layer(hook.self_attn_input, layer_idx)
+                _save_input_layer(hook.self_attn_input, layer_idx), with_kwargs=True,
             ))
             handles.append(layer.mlp.register_forward_pre_hook(
-                _save_input_layer(hook.mlp_input, layer_idx)
+                _save_input_layer(hook.mlp_input, layer_idx), with_kwargs=True,
             ))
         handles.append(model.lm_head.register_forward_pre_hook(
-            _save_input_list(hook.lm_head_input)
+            _save_input_list(hook.lm_head_input), with_kwargs=True,
         ))
     elif model.model_type == 'opt':
         for layer_idx, layer in enumerate(model.model.decoder.layers):
             handles.append(layer.self_attn.register_forward_pre_hook(
-                _save_input_layer(hook.self_attn_input, layer_idx)
+                _save_input_layer(hook.self_attn_input, layer_idx), with_kwargs=True,
             ))
             handles.append(layer.fc1.register_forward_pre_hook(
-                _save_input_layer(hook.mlp_input, layer_idx)
+                _save_input_layer(hook.mlp_input, layer_idx), with_kwargs=True,
             ))
         handles.append(model.lm_head.register_forward_pre_hook(
-            _save_input_list(hook.lm_head_input)
+            _save_input_list(hook.lm_head_input), with_kwargs=True,
         ))
     else:
         raise ValueError(f"Unsupported model_type: {model.model_type}")
