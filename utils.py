@@ -63,7 +63,7 @@ def eval_ppl_wikitext(model, tokenizer, seq_len=2048, device="cuda"):
         nlls.append(out.loss.float() * seq_len)
     return torch.exp(torch.stack(nlls).sum() / (n_samples * seq_len)).item()
 
-def collect_kv_wikitext(model, tokenizer, hook, n_samples=16, seq_len=2048, device="cuda"):
+def collect_qkv_wikitext(model, tokenizer, hook, n_samples=16, seq_len=2048, device="cuda"):
     from datasets import load_dataset
     traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
     trainenc = tokenizer("\n\n".join(traindata['text']), return_tensors='pt')
@@ -92,6 +92,7 @@ def collect_kv_wikitext(model, tokenizer, hook, n_samples=16, seq_len=2048, devi
         loss.backward()
         update_grad(hook.v, hook.v_grad, i)
         if model.model_type == 'llama2':
+            update_grad(hook.q_ropes, hook.q_ropes_grad, i)
             update_grad(hook.k_ropes, hook.k_ropes_grad, i)
         elif model.model_type == 'opt':
             update_grad(hook.k, hook.k_grad, i)

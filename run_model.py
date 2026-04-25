@@ -5,7 +5,7 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
-from utils import eval_ppl_wikitext, collect_kv_wikitext, collect_act_wikitext
+from utils import eval_ppl_wikitext, collect_qkv_wikitext, collect_act_wikitext
 from rotquant import Hook, apply_rotate
 
 
@@ -20,7 +20,7 @@ def parse_args():
                    help="rotation 방식 선택")
     p.add_argument("--offline", action="store_true",
                    help="MLP/FFN online rotation 비활성화")
-    p.add_argument("--collect_kv", action="store_true", help="Collecting KV")
+    p.add_argument("--collect", action="store_true", help="Collecting QKV")
     p.add_argument("--collect_act", action="store_true", help="Collecting normalized activations")
     p.add_argument("--cq", action="store_true", help="Coupled Quantization KV")
     p.add_argument("--pre_rope", action="store_true", help="Quantization Pre KV")
@@ -83,13 +83,13 @@ def _act_filename(kind: str, rotated: bool) -> str:
 
 
 def _build_hook(args, model_dir: str) -> Hook:
-    if args.collect_kv and args.cq:
-        raise ValueError("activate only one of --collect_kv / --cq")
-    if args.collect_kv and args.collect_act:
-        raise ValueError("activate only one of --collect_kv / --collect_act")
+    if args.collect and args.cq:
+        raise ValueError("activate only one of --collect / --cq")
+    if args.collect and args.collect_act:
+        raise ValueError("activate only one of --collect / --collect_act")
 
     hook = Hook()
-    hook.collect = args.collect_kv
+    hook.collect = args.collect
     hook.cq = args.cq
     hook.mant = args.mant
     hook.mant_bits = args.mant_bits
@@ -153,6 +153,8 @@ def _save_activations(model, hook: Hook, model_dir: str, rotated: bool,
     _save_one(_stack_by_layer(hook.v_grad), out_dir, 'v_grad', rotated)
 
     if model.model_type == 'llama2':
+        _save_one(_stack_by_layer(hook.q_ropes),      out_dir, 'q_rope',      rotated)
+        _save_one(_stack_by_layer(hook.q_ropes_grad), out_dir, 'q_rope_grad', rotated)
         _save_one(_stack_by_layer(hook.k_ropes),      out_dir, 'k_rope',      rotated)
         _save_one(_stack_by_layer(hook.k_ropes_grad), out_dir, 'k_rope_grad', rotated)
     else:
@@ -162,6 +164,7 @@ def _save_activations(model, hook: Hook, model_dir: str, rotated: bool,
     _save_one(_stack_by_layer(hook.k_raw), out_dir, 'k', rotated=False)
     _save_one(_stack_by_layer(hook.v_raw), out_dir, 'v', rotated=False)
     if model.model_type == 'llama2':
+        _save_one(_stack_by_layer(hook.q_ropes_raw), out_dir, 'q_rope', rotated=False)
         _save_one(_stack_by_layer(hook.k_ropes_raw), out_dir, 'k_rope', rotated=False)
 
 
@@ -249,9 +252,9 @@ def main():
     print(f"Apply rotate={args.rotate or 'none'}")
     apply_rotate(model, args.device, hook, rotate=rotate)
 
-    if args.collect_kv:
-        print("Collect KV from Wikitext2")
-        collect_kv_wikitext(model, tokenizer, hook)
+    if args.collect:
+        print("Collect QKV from Wikitext2")
+        collect_qkv_wikitext(model, tokenizer, hook)
         _save_activations(model, hook, model_dir, rotated=rotate, act_dir=args.act_dir)
     elif args.collect_act:
         print("Collect Normalized Activation from Wikitext2")

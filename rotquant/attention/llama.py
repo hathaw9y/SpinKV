@@ -34,25 +34,32 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
             )
         return vq_quantize(key_states, kr_cb, hook.channel)
 
-    def _maybe_collect_post_rope(key_states, value_states, key_raw, value_raw):
+    def _maybe_collect_post_rope(query_states, key_states, value_states,
+                                 query_raw, key_raw, value_raw):
         """post-RoPE 단계에서 rotated/raw 모두 수집."""
         if not hook.collect:
             return
+        query_states.retain_grad()
         key_states.retain_grad()
         value_states.retain_grad()
         hook.v[layer_idx].append(value_states)
+        hook.q_ropes[layer_idx].append(query_states)
         hook.k_ropes[layer_idx].append(key_states)
         # raw post-RoPE는 detached cpu로 저장 (grad 불필요)
+        hook.q_ropes_raw[layer_idx].append(query_raw.detach().cpu())
         hook.k_ropes_raw[layer_idx].append(key_raw.detach().cpu())
         hook.v_raw[layer_idx].append(value_raw.detach().cpu())
 
     def rotate_head(query_states, key_states, value_states,
-                    key_raw_post, value_raw_post):
+                    query_raw_post, key_raw_post, value_raw_post):
         if rotate:
             R_h = R_head.to(query_states.dtype)
             query_states = query_states @ R_h
             key_states = key_states @ R_h
-        _maybe_collect_post_rope(key_states, value_states, key_raw_post, value_raw_post)
+        _maybe_collect_post_rope(
+            query_states, key_states, value_states,
+            query_raw_post, key_raw_post, value_raw_post,
+        )
         value_states = _maybe_quantize_v(value_states)
         key_states = _maybe_quantize_k_post_rope(key_states)
         return query_states, key_states, value_states
@@ -115,11 +122,13 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
         )
 
         # post-RoPE raw 스냅샷 (회전 전, quantize 전)
+        query_raw_post = query_states
         key_raw_post = key_states
         value_raw_post = value_states
 
         query_states, key_states, value_states = rotate_head(
-            query_states, key_states, value_states, key_raw_post, value_raw_post
+            query_states, key_states, value_states,
+            query_raw_post, key_raw_post, value_raw_post,
         )
 
         if past_key_value is not None:

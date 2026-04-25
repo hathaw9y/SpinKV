@@ -21,14 +21,17 @@ class Hook:
     def __init__(self):
         # rotated activations
         self.k = defaultdict(list)           # pre-RoPE, rotated
+        self.q_ropes = defaultdict(list)     # post-RoPE query, rotated (LLaMA only)
         self.k_ropes = defaultdict(list)     # post-RoPE, rotated (LLaMA only)
         self.v = defaultdict(list)
         self.k_grad = defaultdict(list)
+        self.q_ropes_grad = defaultdict(list)
         self.k_ropes_grad = defaultdict(list)
         self.v_grad = defaultdict(list)
 
         # non-rotated (raw) activations
         self.k_raw = defaultdict(list)
+        self.q_ropes_raw = defaultdict(list)
         self.k_ropes_raw = defaultdict(list)
         self.v_raw = defaultdict(list)
 
