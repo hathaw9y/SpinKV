@@ -133,7 +133,10 @@ def _build_hook(args, model_dir: str) -> Hook:
 
 def _stack_by_layer(d: dict) -> torch.Tensor:
     """{layer_idx: [tensor, ...]} -> stacked numpy -> torch tensor (B=1 squeeze)."""
-    return torch.from_numpy(np.array([d[k] for k in sorted(d)])).squeeze(2)
+    return torch.stack([
+        torch.stack([x.detach().cpu() for x in d[k]], dim=0)
+        for k in sorted(d)
+    ], dim=0).squeeze(2)
 
 
 def _save_one(tensor: torch.Tensor, out_dir: str, kind: str, rotated: bool) -> None:

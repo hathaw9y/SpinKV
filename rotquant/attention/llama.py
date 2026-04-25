@@ -42,7 +42,7 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
         key_states.retain_grad()
         value_states.retain_grad()
         hook.v[layer_idx].append(value_states)
-        hook.q_ropes[layer_idx].append(query_states)
+        hook.q_ropes[layer_idx].append(query_states.detach().cpu())
         hook.k_ropes[layer_idx].append(key_states)
         # raw post-RoPE는 detached cpu로 저장 (grad 불필요)
         hook.q_ropes_raw[layer_idx].append(query_raw.detach().cpu())
