@@ -105,7 +105,7 @@ def apply_rotate(model, device, hook, rotate: bool = True) -> None:
     add_model_type(model)
     if not rotate:
         _patch_attention_only(model, hook)
-        if hook.BFP:
+        if hook.bfp:
             _patch_linear_bfp(model, hook)
         return
 
@@ -117,7 +117,7 @@ def apply_rotate(model, device, hook, rotate: bool = True) -> None:
     else:
         raise ValueError(f"Unsupported model_type: {model.model_type}")
 
-    if hook.BFP:
+    if hook.bfp:
         _patch_linear_bfp(model, hook)
 
 

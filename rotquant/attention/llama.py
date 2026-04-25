@@ -130,12 +130,12 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
 
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
-        if hook.BFP:
+        if hook.bfp:
             query_states = bfp_quantize_activation(
-                query_states, hook.BFP_block_size, hook.BFP_bits,
+                query_states, hook.bfp_block_size, hook.bfp_bits,
             )
             key_states = bfp_quantize_activation(
-                key_states, hook.BFP_block_size, hook.BFP_bits,
+                key_states, hook.bfp_block_size, hook.bfp_bits,
             )
 
         if attention_mask is not None and attention_mask.size() != (bsz, 1, q_len, kv_seq_len):

@@ -44,8 +44,8 @@ def patch_online_rotate(linear: nn.Linear, R: torch.Tensor, hook=None) -> None:
 
     def forward_fn(self, x):
         x = x @ R_local.to(x.dtype)
-        if hook is not None and hook.BFP:
-            x = bfp_quantize_activation(x, hook.BFP_block_size, hook.BFP_bits)
+        if hook is not None and hook.bfp:
+            x = bfp_quantize_activation(x, hook.bfp_block_size, hook.bfp_bits)
         return torch.nn.functional.linear(x, self.weight, self.bias)
 
     linear._spinkv_online_rotate = True
@@ -59,8 +59,8 @@ def patch_linear_bfp(linear: nn.Linear, hook) -> None:
     org_forward = linear.forward
 
     def forward_fn(self, x):
-        if hook.BFP:
-            x = bfp_quantize_activation(x, hook.BFP_block_size, hook.BFP_bits)
+        if hook.bfp:
+            x = bfp_quantize_activation(x, hook.bfp_block_size, hook.bfp_bits)
         return org_forward(x)
 
     linear.forward = types.MethodType(forward_fn, linear)
