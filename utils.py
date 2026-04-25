@@ -95,3 +95,20 @@ def collect_kv_wikitext(model, tokenizer, hook, n_samples=16, seq_len=2048, devi
             update_grad(hook.k_ropes, hook.k_ropes_grad, i)
         elif model.model_type == 'opt':
             update_grad(hook.k, hook.k_grad, i)
+
+
+@torch.no_grad()
+def collect_act_wikitext(model, tokenizer, n_samples=16, seq_len=2048, device="cuda"):
+    from datasets import load_dataset
+    traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
+    trainenc = tokenizer("\n\n".join(traindata['text']), return_tensors='pt')
+    import random
+    random.seed(0)
+    trainloader = []
+    for _ in range(n_samples):
+        i = random.randint(0, trainenc.input_ids.shape[1] - seq_len - 1)
+        j = i + seq_len
+        trainloader.append(trainenc.input_ids[:, i:j])
+
+    for x in tqdm(trainloader, total=len(trainloader), desc='Activation'):
+        model(input_ids=x.to(device))

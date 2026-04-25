@@ -102,16 +102,16 @@ def _patch_attention_only(model, hook) -> None:
 def apply_rotate(model, device, hook, rotate: bool = True) -> None:
     """
     rotate=True : fuse_norms + Hadamard 회전 + attention patch
-    rotate=False: attention patch만 적용 (cq/collect를 raw 도메인에서 사용)
+    rotate=False: fuse_norms + attention patch (cq/collect를 raw 도메인에서 사용)
     """
     add_model_type(model)
+    fuse_norms(model)
     if not rotate:
         _patch_attention_only(model, hook)
         if hook.bfp:
             _patch_linear_bfp(model, hook)
         return
 
-    fuse_norms(model)
     if model.model_type == 'llama2':
         _apply_llama_rotate(model, device, hook)
     elif model.model_type == 'opt':

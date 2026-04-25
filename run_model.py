@@ -5,7 +5,7 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
-from utils import eval_ppl_wikitext, collect_kv_wikitext
+from utils import eval_ppl_wikitext, collect_kv_wikitext, collect_act_wikitext
 from rotquant import Hook, apply_rotate
 
 
@@ -20,7 +20,8 @@ def parse_args():
                    help="rotation 방식 선택")
     p.add_argument("--offline", action="store_true",
                    help="MLP/FFN online rotation 비활성화")
-    p.add_argument("--collect", action="store_true", help="Collecting KV")
+    p.add_argument("--collect_kv", action="store_true", help="Collecting KV")
+    p.add_argument("--collect_act", action="store_true", help="Collecting normalized activations")
     p.add_argument("--cq", action="store_true", help="Coupled Quantization KV")
     p.add_argument("--pre_rope", action="store_true", help="Quantization Pre KV")
     p.add_argument("--n_channel", type=int, default=4)
@@ -82,11 +83,13 @@ def _act_filename(kind: str, rotated: bool) -> str:
 
 
 def _build_hook(args, model_dir: str) -> Hook:
-    if args.collect and args.cq:
-        raise ValueError("activate only one of --collect / --cq")
+    if args.collect_kv and args.cq:
+        raise ValueError("activate only one of --collect_kv / --cq")
+    if args.collect_kv and args.collect_act:
+        raise ValueError("activate only one of --collect_kv / --collect_act")
 
     hook = Hook()
-    hook.collect = args.collect
+    hook.collect = args.collect_kv
     hook.cq = args.cq
     hook.mant = args.mant
     hook.mant_bits = args.mant_bits
@@ -162,6 +165,65 @@ def _save_activations(model, hook: Hook, model_dir: str, rotated: bool,
         _save_one(_stack_by_layer(hook.k_ropes_raw), out_dir, 'k_rope', rotated=False)
 
 
+def _stack_list(xs: list[torch.Tensor]) -> torch.Tensor:
+    return torch.stack(xs, dim=0)
+
+
+def _stack_act_by_layer(d: dict) -> torch.Tensor:
+    return torch.stack([torch.stack(d[k], dim=0) for k in sorted(d)], dim=0)
+
+
+def _save_act_activations(hook: Hook, model_dir: str, rotated: bool,
+                          act_dir: str) -> None:
+    out_dir = os.path.join(act_dir, model_dir)
+    os.makedirs(out_dir, exist_ok=True)
+
+    _save_one(_stack_act_by_layer(hook.self_attn_input), out_dir, 'self_attn_input', rotated)
+    _save_one(_stack_act_by_layer(hook.mlp_input), out_dir, 'mlp_input', rotated)
+    _save_one(_stack_list(hook.lm_head_input), out_dir, 'lm_head_input', rotated)
+
+
+def _register_act_hooks(model, hook: Hook) -> list:
+    handles = []
+
+    def _save_input_list(xs):
+        def _hook(_module, inputs):
+            xs.append(inputs[0].detach().cpu())
+        return _hook
+
+    def _save_input_layer(d, layer_idx):
+        def _hook(_module, inputs):
+            d[layer_idx].append(inputs[0].detach().cpu())
+        return _hook
+
+    if model.model_type == 'llama2':
+        for layer_idx, layer in enumerate(model.model.layers):
+            handles.append(layer.self_attn.register_forward_pre_hook(
+                _save_input_layer(hook.self_attn_input, layer_idx)
+            ))
+            handles.append(layer.mlp.register_forward_pre_hook(
+                _save_input_layer(hook.mlp_input, layer_idx)
+            ))
+        handles.append(model.lm_head.register_forward_pre_hook(
+            _save_input_list(hook.lm_head_input)
+        ))
+    elif model.model_type == 'opt':
+        for layer_idx, layer in enumerate(model.model.decoder.layers):
+            handles.append(layer.self_attn.register_forward_pre_hook(
+                _save_input_layer(hook.self_attn_input, layer_idx)
+            ))
+            handles.append(layer.fc1.register_forward_pre_hook(
+                _save_input_layer(hook.mlp_input, layer_idx)
+            ))
+        handles.append(model.lm_head.register_forward_pre_hook(
+            _save_input_list(hook.lm_head_input)
+        ))
+    else:
+        raise ValueError(f"Unsupported model_type: {model.model_type}")
+
+    return handles
+
+
 def main():
     args = parse_args()
     set_seed(args.seed)
@@ -176,10 +238,17 @@ def main():
     print(f"Apply rotate={args.rotate or 'none'}")
     apply_rotate(model, args.device, hook, rotate=rotate)
 
-    if args.collect:
-        print("Collect Activation from Wikitext2")
+    if args.collect_kv:
+        print("Collect KV from Wikitext2")
         collect_kv_wikitext(model, tokenizer, hook)
         _save_activations(model, hook, model_dir, rotated=rotate, act_dir=args.act_dir)
+    elif args.collect_act:
+        print("Collect Normalized Activation from Wikitext2")
+        handles = _register_act_hooks(model, hook)
+        collect_act_wikitext(model, tokenizer, device=args.device)
+        for handle in handles:
+            handle.remove()
+        _save_act_activations(hook, model_dir, rotated=rotate, act_dir=args.act_dir)
     else:
         print("\n--- PPL evaluation on WikiText-2 ---")
         ppl = eval_ppl_wikitext(model, tokenizer, seq_len=args.ppl_seq_len, device=args.device)

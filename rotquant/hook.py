@@ -31,3 +31,8 @@ class Hook:
         self.k_raw = defaultdict(list)
         self.k_ropes_raw = defaultdict(list)
         self.v_raw = defaultdict(list)
+
+        # normalized module inputs
+        self.self_attn_input = defaultdict(list)
+        self.mlp_input = defaultdict(list)
+        self.lm_head_input = []
