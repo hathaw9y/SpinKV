@@ -36,9 +36,9 @@ def _act_path(act_root: str, kind: str, rotated: bool) -> str:
     return os.path.join(act_root, f"{kind}_{rot_tag}.pt")
 
 
-def _matrix_path(out_root: str, kind: str, rotated: bool) -> str:
+def _matrix_path(out_root: str, kind: str, rotated: bool, group_size: int) -> str:
     rot_tag = 'rot' if rotated else 'raw'
-    return os.path.join(out_root, f"{kind}_{rot_tag}.pt")
+    return os.path.join(out_root, f"{kind}_{rot_tag}_gs{group_size}.pt")
 
 
 def _flatten_samples(x: torch.Tensor, max_samples: int) -> torch.Tensor:
@@ -163,7 +163,7 @@ def _train_and_save(act_root: str, out_root: str, kind: str,
     else:
         matrices = _train_layerwise(x, args, kind)
 
-    out_path = _matrix_path(out_root, kind, rotated)
+    out_path = _matrix_path(out_root, kind, rotated, args.group_size)
     torch.save(matrices, out_path)
     print(f"Saved: {out_path}")
 

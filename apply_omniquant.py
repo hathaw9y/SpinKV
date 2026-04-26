@@ -46,6 +46,8 @@ def parse_args():
     p.add_argument("--omniquant_path", type=str, default=os.environ.get("OMNIQUANT_PATH", "OmniQuant"),
                    help="OpenGVLab/OmniQuant repo path")
     p.add_argument("--orth_dir", type=str, default="orthogonal_matrices")
+    p.add_argument("--orth_group_size", type=int, default=128,
+                   help="orthogonal matrix 파일명에 사용되는 group size")
     p.add_argument("--output_dir", type=str, default="omniquant_logs")
     p.add_argument("--save_dir", type=str, default=None,
                    help="directory for fake-quantized HF checkpoints")
@@ -176,6 +178,7 @@ def _make_hook(args, model_dir: str):
         offline=True,
         qk_rotate=None,
         orth_dir=args.orth_dir,
+        orth_group_size=args.orth_group_size,
         model_dir=model_dir,
     )
 

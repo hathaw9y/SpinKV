@@ -28,6 +28,11 @@ def add_model_type(model) -> None:
 
 
 def _orth_path(hook, kind: str) -> str:
+    group_size = getattr(hook, 'orth_group_size', None)
+    if group_size is not None:
+        path = os.path.join(hook.orth_dir, hook.model_dir, f"{kind}_raw_gs{group_size}.pt")
+        if os.path.exists(path):
+            return path
     return os.path.join(hook.orth_dir, hook.model_dir, f"{kind}_raw.pt")
 
 

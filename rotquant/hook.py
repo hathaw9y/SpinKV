@@ -22,6 +22,7 @@ class Hook:
     offline = False
     qk_rotate = None
     orth_dir = "orthogonal_matrices"
+    orth_group_size = 128
     model_dir = None
 
     def __init__(self):

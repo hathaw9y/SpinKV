@@ -45,6 +45,8 @@ def parse_args():
     p.add_argument("--act_dir", type=str, default="activations")
     p.add_argument("--cb_dir", type=str, default="codebooks")
     p.add_argument("--orth_dir", type=str, default="orthogonal_matrices")
+    p.add_argument("--orth_group_size", type=int, default=128,
+                   help="orthogonal matrix 파일명에 사용되는 group size")
     return p.parse_args()
 
 
@@ -111,6 +113,7 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook.offline = args.offline
     hook.qk_rotate = args.qk_rotate
     hook.orth_dir = args.orth_dir
+    hook.orth_group_size = args.orth_group_size
     hook.model_dir = model_dir
 
     if hook.cq:
