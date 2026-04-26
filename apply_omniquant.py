@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
+import torch.nn as nn
+from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, set_seed
 
 
@@ -51,6 +53,8 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--batch_size", type=int, default=1)
     p.add_argument("--eval_ppl", action="store_true")
+    p.add_argument("--ppl_datasets", type=str, default="wikitext2",
+                   help="comma separated PPL datasets: wikitext2,c4")
     p.add_argument("--tasks", type=str, default="")
     p.add_argument("--num_fewshot", type=int, default=0)
     p.add_argument("--limit", type=int, default=-1)
@@ -211,6 +215,7 @@ def _build_omni_args(args, variant: str):
         seed=args.seed,
         tasks=args.tasks,
         eval_ppl=args.eval_ppl,
+        ppl_datasets=args.ppl_datasets,
         num_fewshot=args.num_fewshot,
         wbits=args.wbits,
         abits=args.abits,
@@ -295,6 +300,75 @@ def _save_quantized_model(lm, omni_args, omniquant_path: str):
     lm.model.save_pretrained(omni_args.save_dir)
     lm.tokenizer.save_pretrained(omni_args.save_dir)
     print(f"Saved quantized model: {omni_args.save_dir}")
+
+
+@torch.no_grad()
+def _evaluate_ppl(lm, omni_args, get_loaders, logger):
+    if not omni_args.eval_ppl:
+        return
+
+    if "opt" in omni_args.net.lower():
+        lm.model.model.decoder = lm.model.model.decoder.to(lm.device)
+    elif "llama" in omni_args.net.lower() or "mixtral" in omni_args.net.lower():
+        lm.model = lm.model.to(lm.device)
+    elif "falcon" in omni_args.model:
+        lm.model.transformer = lm.model.transformer.to(lm.device)
+
+    datasets = [x.strip() for x in omni_args.ppl_datasets.split(",") if x.strip()]
+    use_cache = lm.model.config.use_cache
+    lm.model.config.use_cache = False
+    lm.model.eval()
+
+    for dataset in datasets:
+        cache_testloader = f"{omni_args.cache_dir}/testloader_{omni_args.model_family}_{dataset}_all.cache"
+        if os.path.exists(cache_testloader):
+            testloader = torch.load(cache_testloader)
+            logger.info(f"load calibration from {cache_testloader}")
+        else:
+            _, testloader = get_loaders(
+                dataset,
+                seed=omni_args.seed,
+                model=omni_args.model,
+                seqlen=lm.seqlen,
+            )
+            torch.save(testloader, cache_testloader)
+
+        if "c4" in dataset:
+            testenc = testloader
+        else:
+            testenc = testloader.input_ids
+
+        nsamples = testenc.numel() // lm.seqlen
+        if omni_args.limit != -1:
+            nsamples = min(nsamples, omni_args.limit + 1)
+
+        nlls = []
+        for i in tqdm(range(nsamples), desc=f"PPL {dataset}"):
+            batch = testenc[:, (i * lm.seqlen):((i + 1) * lm.seqlen)].to(lm.device)
+            if "opt" in omni_args.net.lower():
+                outputs = lm.model.model.decoder(batch)
+            elif "llama" in omni_args.net.lower() or "mixtral" in omni_args.net.lower():
+                outputs = lm.model.model(batch)
+            elif "falcon" in omni_args.model:
+                outputs = lm.model.transformer(batch)
+            else:
+                outputs = lm.model(batch)
+
+            hidden_states = outputs[0]
+            logits = lm.model.lm_head(hidden_states)
+            shift_logits = logits[:, :-1, :]
+            shift_labels = testenc[:, (i * lm.seqlen):((i + 1) * lm.seqlen)][:, 1:]
+            shift_labels = shift_labels.to(lm.model.lm_head.weight.device)
+            loss = nn.CrossEntropyLoss()(
+                shift_logits.reshape(-1, shift_logits.size(-1)),
+                shift_labels.reshape(-1),
+            )
+            nlls.append(loss.float() * lm.seqlen)
+
+        ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * lm.seqlen))
+        logger.info(f"{dataset} : {ppl.item()}")
+
+    lm.model.config.use_cache = use_cache
 
 
 def _basis_change(x: torch.Tensor, R_from: torch.Tensor, R_to: torch.Tensor) -> torch.Tensor:
@@ -439,6 +513,7 @@ def _run_variant(args, variant: str, omniquant_fn, get_loaders):
         torch.save(dataloader, cache_dataloader)
 
     omniquant_fn(lm, omni_args, dataloader, act_scales=None, act_shifts=None, logger=_PrintLogger())
+    _evaluate_ppl(lm, omni_args, get_loaders, _PrintLogger())
     _save_quantized_model(lm, omni_args, args.omniquant_path)
 
     del lm, model
