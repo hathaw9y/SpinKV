@@ -23,6 +23,9 @@ def parse_args():
     p.add_argument("--loss", type=str, default="bfp_mse",
                    choices=["bfp_mse", "bfp_relative_mse", "group_variance"],
                    help="orthogonal matrix 학습 loss")
+    p.add_argument("--select", type=str, default="last",
+                   choices=["last", "best"],
+                   help="저장할 matrix 선택 기준")
     p.add_argument("--block_size", type=int, default=None,
                    help="deprecated alias of --group_size")
     p.add_argument("--num_steps", type=int, default=1000)
@@ -105,7 +108,7 @@ def rotation_loss(Y: torch.Tensor, group_size: int, mant_bits: int,
 def train_orthogonal_matrix(
     X, group_size, mant_bits=8, loss_type="bfp_mse",
     num_steps=1000, lr=1e-2, tol=1e-4, atol=1e-8, patience=100,
-    verbose=True,
+    select="last", verbose=True,
 ):
     D = X.shape[-1]
     assert D % group_size == 0
@@ -150,12 +153,15 @@ def train_orthogonal_matrix(
         if verbose and (step % 100 == 0):
             print(f"    step {step:5d} | loss {cur:.6f}")
 
-    if best_Q is not None:
+    if select == "best" and best_Q is not None:
         return best_Q, best_loss
 
     with torch.no_grad():
         S_mat = A - A.T
         Q = torch.linalg.solve(I + S_mat, I - S_mat)
+        final_loss = rotation_loss(X_fp32 @ Q, group_size, mant_bits, loss_type).item()
+    if select == "last":
+        return Q.detach(), final_loss
     return Q.detach(), best_loss
 
 
@@ -171,6 +177,7 @@ def _train_one_matrix(x: torch.Tensor, args) -> tuple[torch.Tensor, float]:
         tol=args.tol,
         atol=args.atol,
         patience=args.patience,
+        select=args.select,
     )
     return Q.cpu(), loss
 
