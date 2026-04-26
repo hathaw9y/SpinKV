@@ -78,6 +78,14 @@ def parse_args():
     p.add_argument("--wd", type=float, default=0)
     p.add_argument("--aug_loss", action="store_true", default=False)
     p.add_argument("--deactive_amp", action="store_true", default=False)
+    p.add_argument("--bfp", action="store_true",
+                   help="OmniQuant 적용 후 linear/matmul activation에 BFP 적용")
+    p.add_argument("--bfp_bits", type=int, default=8)
+    p.add_argument("--bfp_block_size", type=int, default=128)
+    p.add_argument("--weight_bfp", action="store_true",
+                   help="OmniQuant 적용 후 linear weight를 W.T 기준으로 BFP 적용")
+    p.add_argument("--weight_bfp_bits", type=int, default=8)
+    p.add_argument("--weight_bfp_block_size", type=int, default=128)
     return p.parse_args()
 
 
@@ -483,6 +491,102 @@ def _patch_omniquant_layers_for_spinkv(omniquant_path: str) -> None:
         QuantOPTDecoderLayer._spinkv_patched = True
 
 
+def _apply_post_omniquant_bfp(lm, args) -> None:
+    if not args.bfp and not args.weight_bfp:
+        return
+
+    _prefer_spinkv_imports(args.omniquant_path)
+    from utils import bfp_quantize_activation, bfp_quantize_weight_transpose
+
+    root = Path(args.omniquant_path).expanduser().resolve()
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    int_linear = importlib.import_module("quantize.int_linear")
+    int_matmul = importlib.import_module("quantize.int_matmul")
+    QuantLinear = int_linear.QuantLinear
+    QuantMatMul = int_matmul.QuantMatMul
+
+    def _patch_nn_linear(module):
+        if args.weight_bfp:
+            module.weight.data = bfp_quantize_weight_transpose(
+                module.weight.data, args.weight_bfp_block_size, args.weight_bfp_bits,
+            )
+        if args.bfp and not getattr(module, "_spinkv_omni_bfp", False):
+            org_forward = module.forward
+
+            def forward_fn(self, x):
+                x = bfp_quantize_activation(x, args.bfp_block_size, args.bfp_bits)
+                return org_forward(x)
+
+            module.forward = forward_fn.__get__(module, module.__class__)
+            module._spinkv_omni_bfp = True
+
+    def _patch_quant_linear(module):
+        if getattr(module, "_spinkv_omni_bfp", False):
+            return
+
+        def forward_fn(self, input: torch.Tensor):
+            if self.use_temporary_parameter:
+                weight = self.temp_weight
+                bias = self.temp_bias
+            elif self.use_weight_quant:
+                weight = self.weight_quantizer(self.weight)
+                bias = self.bias
+            else:
+                weight = self.weight
+                bias = self.bias
+
+            if args.weight_bfp:
+                weight = bfp_quantize_weight_transpose(
+                    weight, args.weight_bfp_block_size, args.weight_bfp_bits,
+                )
+            if self.use_act_quant and not self.disable_input_quant:
+                input = self.act_quantizer(input)
+            if args.bfp:
+                input = bfp_quantize_activation(input, args.bfp_block_size, args.bfp_bits)
+            return self.fwd_func(input, weight, bias, **self.fwd_kwargs)
+
+        module.forward = forward_fn.__get__(module, module.__class__)
+        module._spinkv_omni_bfp = True
+
+    def _patch_quant_matmul(module):
+        if not args.bfp or getattr(module, "_spinkv_omni_bfp", False):
+            return
+
+        org_quant_x1 = module.quant_x1
+        org_quant_x2 = module.quant_x2
+
+        def quant_x1(x1):
+            x1 = org_quant_x1(x1)
+            return bfp_quantize_activation(x1, args.bfp_block_size, args.bfp_bits)
+
+        def quant_x2(x2):
+            x2 = org_quant_x2(x2)
+            return bfp_quantize_activation(x2, args.bfp_block_size, args.bfp_bits)
+
+        module.quant_x1 = quant_x1
+        module.quant_x2 = quant_x2
+        module._spinkv_omni_bfp = True
+
+    n_linear, n_qlinear, n_qmatmul = 0, 0, 0
+    for module in lm.model.modules():
+        if isinstance(module, QuantLinear):
+            _patch_quant_linear(module)
+            n_qlinear += 1
+        elif isinstance(module, nn.Linear):
+            _patch_nn_linear(module)
+            n_linear += 1
+        elif isinstance(module, QuantMatMul):
+            _patch_quant_matmul(module)
+            n_qmatmul += 1
+
+    print(
+        "Applied post-OmniQuant BFP: "
+        f"bfp={args.bfp}, weight_bfp={args.weight_bfp}, "
+        f"QuantLinear={n_qlinear}, Linear={n_linear}, QuantMatMul={n_qmatmul}"
+    )
+
+
 def _run_variant(args, variant: str, omniquant_fn, get_loaders):
     print(f"\n=== {variant} | official OmniQuant W4A16gs128 ===")
     if variant == "orthogonal":
@@ -513,6 +617,7 @@ def _run_variant(args, variant: str, omniquant_fn, get_loaders):
         torch.save(dataloader, cache_dataloader)
 
     omniquant_fn(lm, omni_args, dataloader, act_scales=None, act_shifts=None, logger=_PrintLogger())
+    _apply_post_omniquant_bfp(lm, args)
     _evaluate_ppl(lm, omni_args, get_loaders, _PrintLogger())
     _save_quantized_model(lm, omni_args, args.omniquant_path)
 
