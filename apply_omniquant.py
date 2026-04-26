@@ -97,6 +97,13 @@ def _disable_init():
     torch.nn.init.normal_ = skip
 
 
+def _load_torch_cache(path: str):
+    try:
+        return torch.load(path, weights_only=False)
+    except TypeError:
+        return torch.load(path)
+
+
 def _model_dir_name(model_id: str) -> str:
     return model_id.replace("/", "_")
 
@@ -330,7 +337,7 @@ def _evaluate_ppl(lm, omni_args, get_loaders, logger):
     for dataset in datasets:
         cache_testloader = f"{omni_args.cache_dir}/testloader_{omni_args.model_family}_{dataset}_all.cache"
         if os.path.exists(cache_testloader):
-            testloader = torch.load(cache_testloader)
+            testloader = _load_torch_cache(cache_testloader)
             logger.info(f"load calibration from {cache_testloader}")
         else:
             _, testloader = get_loaders(
@@ -604,7 +611,7 @@ def _run_variant(args, variant: str, omniquant_fn, get_loaders):
         f"{omni_args.calib_dataset}_{omni_args.nsamples}_{args.seqlen}.cache"
     )
     if os.path.exists(cache_dataloader):
-        dataloader = torch.load(cache_dataloader)
+        dataloader = _load_torch_cache(cache_dataloader)
         print(f"load calibration from {cache_dataloader}")
     else:
         dataloader, _ = get_loaders(
