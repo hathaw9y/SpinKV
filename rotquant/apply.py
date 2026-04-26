@@ -35,7 +35,8 @@ def _load_orthogonal(hook, kind: str, device) -> torch.Tensor:
     return torch.load(path, map_location=device)
 
 
-def _patch_input_rotate(linear: nn.Linear, R: torch.Tensor, hook) -> None:
+def _patch_online_input_rotate(linear: nn.Linear, R: torch.Tensor, hook) -> None:
+    """Hadamard intermediate path처럼 weight 흡수와 runtime input rotate를 함께 적용."""
     absorb_R_input(linear, R)
     patch_online_rotate(linear, R, hook)
 
@@ -64,7 +65,7 @@ def _apply_llama_hadamard_rotate(model, device, hook) -> None:
         absorb_R_output(mlp.down_proj, R_res)
 
         if not hook.offline:
-            _patch_input_rotate(mlp.down_proj, R_mlp, hook)
+            _patch_online_input_rotate(mlp.down_proj, R_mlp, hook)
 
         patch_llama_attention(attn, R_head, layer_idx, hook)
 
@@ -97,7 +98,7 @@ def _apply_opt_hadamard_rotate(model, device, hook) -> None:
         absorb_R_output(layer.fc2, R_res)
 
         if not hook.offline:
-            _patch_input_rotate(layer.fc2, R_ffn, hook)
+            _patch_online_input_rotate(layer.fc2, R_ffn, hook)
 
         patch_opt_attention(attn, R_head, layer_idx, hook)
 
