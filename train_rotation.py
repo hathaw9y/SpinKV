@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.optim as optim
 import transformers
 
+from utils import convert2fp16
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -15,7 +17,12 @@ def parse_args():
     p.add_argument("--act_dir", type=str, default="activations")
     p.add_argument("--out_dir", type=str, default="orthogonal_matrices")
     p.add_argument("--group_size", type=int, default=128,
-                   help="BFP group size used for group-wise variance loss")
+                   help="BFP group size")
+    p.add_argument("--mant_bits", type=int, default=8,
+                   help="BFP mantissa bit 수")
+    p.add_argument("--loss", type=str, default="bfp_mse",
+                   choices=["bfp_mse", "bfp_relative_mse", "group_variance"],
+                   help="orthogonal matrix 학습 loss")
     p.add_argument("--block_size", type=int, default=None,
                    help="deprecated alias of --group_size")
     p.add_argument("--num_steps", type=int, default=1000)
@@ -49,21 +56,56 @@ def _flatten_samples(x: torch.Tensor, max_samples: int) -> torch.Tensor:
     return x
 
 
-def bfp_group_variance_loss(Y: torch.Tensor, group_size: int) -> torch.Tensor:
-    """BFP 공유 exponent 단위(group) 안에서 |activation| 분산을 낮춘다."""
+def _check_group_size(Y: torch.Tensor, group_size: int) -> None:
     D = Y.shape[-1]
     if D % group_size != 0:
         raise ValueError(f"hidden dim {D} is not divisible by group_size={group_size}")
 
-    num_groups = D // group_size
+
+def bfp_group_variance_loss(Y: torch.Tensor, group_size: int) -> torch.Tensor:
+    """BFP 공유 exponent 단위(group) 안에서 |activation| 분산을 낮춘다."""
+    _check_group_size(Y, group_size)
+
+    num_groups = Y.shape[-1] // group_size
     Y_abs = Y.abs()
     Y_group = Y_abs.reshape(*Y_abs.shape[:-1], num_groups, group_size)
     return Y_group.var(dim=-1, unbiased=False).mean()
 
 
+def bfp_reconstruction_loss(
+    Y: torch.Tensor, group_size: int, mant_bits: int,
+    relative: bool = False, eps: float = 1e-6,
+) -> torch.Tensor:
+    """convert2fp16으로 만든 BFP target과의 reconstruction error를 직접 낮춘다."""
+    _check_group_size(Y, group_size)
+
+    with torch.no_grad():
+        Y_bfp, _, _ = convert2fp16(
+            Y.detach(), block_size=group_size, mbits=mant_bits,
+        )
+        Y_bfp = Y_bfp.to(dtype=Y.dtype, device=Y.device)
+
+    err = Y - Y_bfp
+    if relative:
+        err = err / Y.detach().abs().clamp_min(eps)
+    return err.pow(2).mean()
+
+
+def rotation_loss(Y: torch.Tensor, group_size: int, mant_bits: int,
+                  loss_type: str) -> torch.Tensor:
+    if loss_type == "bfp_mse":
+        return bfp_reconstruction_loss(Y, group_size, mant_bits, relative=False)
+    if loss_type == "bfp_relative_mse":
+        return bfp_reconstruction_loss(Y, group_size, mant_bits, relative=True)
+    if loss_type == "group_variance":
+        return bfp_group_variance_loss(Y, group_size)
+    raise ValueError(f"Unsupported loss: {loss_type}")
+
+
 def train_orthogonal_matrix(
-    X, group_size, num_steps=1000, lr=1e-2, tol=1e-4, atol=1e-8,
-    patience=100, verbose=True,
+    X, group_size, mant_bits=8, loss_type="bfp_mse",
+    num_steps=1000, lr=1e-2, tol=1e-4, atol=1e-8, patience=100,
+    verbose=True,
 ):
     D = X.shape[-1]
     assert D % group_size == 0
@@ -76,9 +118,9 @@ def train_orthogonal_matrix(
     optimizer = optim.Adam([A], lr=lr)
 
     with torch.no_grad():
-        init_loss = bfp_group_variance_loss(X_fp32, group_size).item()
+        init_loss = rotation_loss(X_fp32, group_size, mant_bits, loss_type).item()
     if verbose:
-        print(f"    identity loss {init_loss:.6f}")
+        print(f"    identity {loss_type} loss {init_loss:.6f}")
 
     best_loss, bad = float('inf'), 0
     best_Q = None
@@ -88,7 +130,7 @@ def train_orthogonal_matrix(
         Q = torch.linalg.solve(I + S_mat, I - S_mat)
 
         Y = X_fp32 @ Q
-        loss = bfp_group_variance_loss(Y, group_size)
+        loss = rotation_loss(Y, group_size, mant_bits, loss_type)
 
         loss.backward()
         optimizer.step()
@@ -122,6 +164,8 @@ def _train_one_matrix(x: torch.Tensor, args) -> tuple[torch.Tensor, float]:
     Q, loss = train_orthogonal_matrix(
         x,
         group_size=args.group_size,
+        mant_bits=args.mant_bits,
+        loss_type=args.loss,
         num_steps=args.num_steps,
         lr=args.lr,
         tol=args.tol,
