@@ -18,8 +18,8 @@ def parse_args():
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--rotate", type=str, choices=["hadamard", "orthogonal"], default=None,
                    help="rotation 방식 선택")
-    p.add_argument("--head_rotate", type=str, choices=["hadamard"], default=None,
-                   help="RoPE 이후 Q/K head-dim rotation 방식")
+    p.add_argument("--qk_rotate", type=str, choices=["hadamard"], default=None,
+                   help="RoPE 이후 Q/K rotation 방식")
     p.add_argument("--offline", action="store_true",
                    help="MLP/FFN online rotation 비활성화")
     p.add_argument("--collect_qkv", action="store_true", help="Collecting QKV")
@@ -101,7 +101,7 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook.bfp_bits = args.bfp_bits
     hook.bfp_block_size = args.bfp_block_size
     hook.offline = args.offline
-    hook.head_rotate = args.head_rotate
+    hook.qk_rotate = args.qk_rotate
     hook.orth_dir = args.orth_dir
     hook.model_dir = model_dir
 
