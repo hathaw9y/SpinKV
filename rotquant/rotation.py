@@ -5,6 +5,17 @@ import torch.nn as nn
 from utils import bfp_quantize_activation, bfp_quantize_weight_transpose
 
 
+def _bfp_bits_for_linear(linear: nn.Linear, hook) -> int:
+    category = getattr(linear, '_spinkv_bfp_category', None)
+    override = {
+        'qkv': getattr(hook, 'bfp_qkv_bits', None),
+        'o': getattr(hook, 'bfp_o_bits', None),
+        'up_gate': getattr(hook, 'bfp_up_gate_bits', None),
+        'down': getattr(hook, 'bfp_down_bits', None),
+    }.get(category, None)
+    return getattr(hook, 'bfp_bits', 8) if override is None else override
+
+
 # ---------------- absorb R into weights ----------------
 def absorb_R_input(linear: nn.Linear, R: torch.Tensor) -> None:
     """입력 측 회전: W <- W @ R"""
@@ -45,7 +56,9 @@ def patch_online_rotate(linear: nn.Linear, R: torch.Tensor, hook=None) -> None:
     def forward_fn(self, x):
         x = x @ R_local.to(x.dtype)
         if hook is not None and hook.bfp:
-            x = bfp_quantize_activation(x, hook.bfp_block_size, hook.bfp_bits)
+            x = bfp_quantize_activation(
+                x, hook.bfp_block_size, _bfp_bits_for_linear(self, hook),
+            )
         return torch.nn.functional.linear(x, self.weight, self.bias)
 
     linear._spinkv_online_rotate = True
@@ -60,7 +73,9 @@ def patch_linear_bfp(linear: nn.Linear, hook) -> None:
 
     def forward_fn(self, x):
         if hook.bfp:
-            x = bfp_quantize_activation(x, hook.bfp_block_size, hook.bfp_bits)
+            x = bfp_quantize_activation(
+                x, hook.bfp_block_size, _bfp_bits_for_linear(self, hook),
+            )
         return org_forward(x)
 
     linear.forward = types.MethodType(forward_fn, linear)

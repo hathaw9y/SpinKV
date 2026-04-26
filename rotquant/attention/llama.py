@@ -7,6 +7,11 @@ from utils import bfp_quantize_activation
 from ..quantization import vq_quantize, vq_quantize_mantissa
 
 
+def _qk_bfp_bits(hook) -> int:
+    bits = getattr(hook, 'bfp_qk_bits', None)
+    return getattr(hook, 'bfp_bits', 8) if bits is None else bits
+
+
 def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
     """
     LLaMA self-attention patch.
@@ -122,11 +127,12 @@ def patch_llama_attention(attn_module, R_head, layer_idx: int, hook) -> None:
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
         if hook.bfp:
+            qk_bits = _qk_bfp_bits(hook)
             query_states = bfp_quantize_activation(
-                query_states, hook.bfp_block_size, hook.bfp_bits,
+                query_states, hook.bfp_block_size, qk_bits,
             )
             key_states = bfp_quantize_activation(
-                key_states, hook.bfp_block_size, hook.bfp_bits,
+                key_states, hook.bfp_block_size, qk_bits,
             )
 
         if attention_mask is not None and attention_mask.size() != (bsz, 1, q_len, kv_seq_len):

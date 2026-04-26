@@ -37,6 +37,16 @@ def parse_args():
                    help="linear input activation과 attention QK matmul 입력에 bfp 적용")
     p.add_argument("--bfp_bits", type=int, default=8)
     p.add_argument("--bfp_block_size", type=int, default=128)
+    p.add_argument("--bfp_qkv_bits", type=int, default=None,
+                   help="q/k/v projection input BFP bit override")
+    p.add_argument("--bfp_o_bits", type=int, default=None,
+                   help="attention output projection input BFP bit override")
+    p.add_argument("--bfp_up_gate_bits", type=int, default=None,
+                   help="MLP up/gate projection input BFP bit override")
+    p.add_argument("--bfp_down_bits", type=int, default=None,
+                   help="MLP down projection input BFP bit override")
+    p.add_argument("--bfp_qk_bits", type=int, default=None,
+                   help="QK matmul input BFP bit override")
     p.add_argument("--weight_bfp", action="store_true",
                    help="linear weight를 W.T 기준으로 bfp 적용")
     p.add_argument("--weight_bfp_bits", type=int, default=8,
@@ -105,6 +115,11 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook.bfp = args.bfp
     hook.bfp_bits = args.bfp_bits
     hook.bfp_block_size = args.bfp_block_size
+    hook.bfp_qkv_bits = args.bfp_qkv_bits
+    hook.bfp_o_bits = args.bfp_o_bits
+    hook.bfp_up_gate_bits = args.bfp_up_gate_bits
+    hook.bfp_down_bits = args.bfp_down_bits
+    hook.bfp_qk_bits = args.bfp_qk_bits
     hook.weight_bfp = args.weight_bfp
     hook.weight_bfp_bits = args.weight_bfp_bits
     hook.weight_bfp_block_size = args.weight_bfp_block_size

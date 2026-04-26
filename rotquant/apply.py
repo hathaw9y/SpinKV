@@ -33,13 +33,17 @@ def _orth_path(hook, kind: str) -> str:
         path = os.path.join(hook.orth_dir, hook.model_dir, f"{kind}_raw_gs{group_size}.pt")
         if os.path.exists(path):
             return path
-    return os.path.join(hook.orth_dir, hook.model_dir, f"{kind}_raw.pt")
+        print(f"orthogonal matrix not found for group_size={group_size}: {path}")
+    fallback = os.path.join(hook.orth_dir, hook.model_dir, f"{kind}_raw.pt")
+    print(f"fallback orthogonal matrix: {fallback}")
+    return fallback
 
 
 def _load_orthogonal(hook, kind: str, device) -> torch.Tensor:
     path = _orth_path(hook, kind)
     if not os.path.exists(path):
         raise FileNotFoundError(f"orthogonal matrix not found: {path}")
+    print(f"Load orthogonal matrix: {path}")
     return torch.load(path, map_location=device)
 
 
@@ -288,6 +292,28 @@ def _patch_attention_only(model, device, hook) -> None:
         raise ValueError(f"Unsupported model_type: {model.model_type}")
 
 
+def _tag_linear_bfp_categories(model) -> None:
+    if model.model_type == 'llama2':
+        for layer in model.model.layers:
+            attn, mlp = layer.self_attn, layer.mlp
+            for proj in (attn.q_proj, attn.k_proj, attn.v_proj):
+                proj._spinkv_bfp_category = 'qkv'
+            attn.o_proj._spinkv_bfp_category = 'o'
+            for proj in (mlp.gate_proj, mlp.up_proj):
+                proj._spinkv_bfp_category = 'up_gate'
+            mlp.down_proj._spinkv_bfp_category = 'down'
+    elif model.model_type == 'opt':
+        for layer in model.model.decoder.layers:
+            attn = layer.self_attn
+            for proj in (attn.q_proj, attn.k_proj, attn.v_proj):
+                proj._spinkv_bfp_category = 'qkv'
+            attn.out_proj._spinkv_bfp_category = 'o'
+            layer.fc1._spinkv_bfp_category = 'up_gate'
+            layer.fc2._spinkv_bfp_category = 'down'
+    else:
+        raise ValueError(f"Unsupported model_type: {model.model_type}")
+
+
 def apply_rotate(model, device, hook, rotate: str | None = "hadamard") -> None:
     """
     rotate='hadamard'   : fuse_norms + Hadamard 회전 + attention patch
@@ -296,6 +322,7 @@ def apply_rotate(model, device, hook, rotate: str | None = "hadamard") -> None:
     """
     add_model_type(model)
     fuse_norms(model)
+    _tag_linear_bfp_categories(model)
     if rotate is None:
         _patch_attention_only(model, device, hook)
         if getattr(hook, 'weight_bfp', False):
