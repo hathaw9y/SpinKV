@@ -2,7 +2,7 @@ import types
 import torch
 import torch.nn as nn
 
-from utils import bfp_quantize_activation
+from utils import bfp_quantize_activation, bfp_quantize_weight_transpose
 
 
 # ---------------- absorb R into weights ----------------
@@ -64,3 +64,12 @@ def patch_linear_bfp(linear: nn.Linear, hook) -> None:
         return org_forward(x)
 
     linear.forward = types.MethodType(forward_fn, linear)
+
+
+@torch.no_grad()
+def apply_linear_weight_bfp(linear: nn.Linear, hook) -> None:
+    linear.weight.data = bfp_quantize_weight_transpose(
+        linear.weight.data,
+        getattr(hook, 'weight_bfp_block_size', 128),
+        getattr(hook, 'weight_bfp_bits', 8),
+    )

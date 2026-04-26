@@ -6,7 +6,7 @@ import torch.nn as nn
 from .fusion import fuse_norms
 from .rotation import (
     absorb_R_input, absorb_R_output, absorb_R_into_embedding,
-    patch_online_rotate, patch_linear_bfp,
+    patch_online_rotate, patch_linear_bfp, apply_linear_weight_bfp,
 )
 from .attention.llama import patch_llama_attention
 from .attention.opt import patch_opt_attention
@@ -293,7 +293,9 @@ def apply_rotate(model, device, hook, rotate: str | None = "hadamard") -> None:
     fuse_norms(model)
     if rotate is None:
         _patch_attention_only(model, device, hook)
-        if hook.bfp:
+        if getattr(hook, 'weight_bfp', False):
+            _apply_linear_weight_bfp(model, hook)
+        if getattr(hook, 'bfp', False):
             _patch_linear_bfp(model, hook)
         return
 
@@ -314,7 +316,10 @@ def apply_rotate(model, device, hook, rotate: str | None = "hadamard") -> None:
     else:
         raise ValueError(f"Unsupported rotate: {rotate}")
 
-    if hook.bfp:
+    if getattr(hook, 'weight_bfp', False):
+        _apply_linear_weight_bfp(model, hook)
+
+    if getattr(hook, 'bfp', False):
         _patch_linear_bfp(model, hook)
 
 
@@ -322,3 +327,9 @@ def _patch_linear_bfp(model, hook) -> None:
     for module in model.modules():
         if isinstance(module, nn.Linear):
             patch_linear_bfp(module, hook)
+
+
+def _apply_linear_weight_bfp(model, hook) -> None:
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            apply_linear_weight_bfp(module, hook)

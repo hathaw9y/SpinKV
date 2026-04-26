@@ -47,6 +47,16 @@ def bfp_quantize_activation(x: torch.Tensor, block_size: int = 128,
     return restored.to(x.dtype)
 
 
+def bfp_quantize_weight_transpose(w: torch.Tensor, block_size: int = 128,
+                                  mbits: int = 8) -> torch.Tensor:
+    """Linear 연산의 W.T 기준으로 weight를 BFP truncate한다."""
+    wt = w.T.contiguous()
+    if wt.shape[-1] % block_size != 0:
+        block_size = wt.shape[-1]
+    restored, _, _ = convert2fp16(wt, block_size=block_size, mbits=mbits)
+    return restored.T.contiguous().to(w.dtype)
+
+
 # ==================== PPL ====================
 @torch.no_grad()
 def eval_ppl_wikitext(model, tokenizer, seq_len=2048, device="cuda"):

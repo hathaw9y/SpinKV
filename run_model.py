@@ -37,6 +37,11 @@ def parse_args():
                    help="linear input activation과 attention QK matmul 입력에 bfp 적용")
     p.add_argument("--bfp_bits", type=int, default=8)
     p.add_argument("--bfp_block_size", type=int, default=128)
+    p.add_argument("--weight_bfp", action="store_true",
+                   help="linear weight를 W.T 기준으로 bfp 적용")
+    p.add_argument("--weight_bfp_bits", type=int, default=8,
+                   help="weight BFP mantissa bit 수 (--bfp_bits와 독립)")
+    p.add_argument("--weight_bfp_block_size", type=int, default=128)
     p.add_argument("--act_dir", type=str, default="activations")
     p.add_argument("--cb_dir", type=str, default="codebooks")
     p.add_argument("--orth_dir", type=str, default="orthogonal_matrices")
@@ -100,6 +105,9 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook.bfp = args.bfp
     hook.bfp_bits = args.bfp_bits
     hook.bfp_block_size = args.bfp_block_size
+    hook.weight_bfp = args.weight_bfp
+    hook.weight_bfp_bits = args.weight_bfp_bits
+    hook.weight_bfp_block_size = args.weight_bfp_block_size
     hook.offline = args.offline
     hook.qk_rotate = args.qk_rotate
     hook.orth_dir = args.orth_dir

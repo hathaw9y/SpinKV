@@ -16,6 +16,9 @@ class Hook:
     bfp = False
     bfp_bits = 8
     bfp_block_size = 128
+    weight_bfp = False
+    weight_bfp_bits = 8
+    weight_bfp_block_size = 128
     offline = False
     qk_rotate = None
     orth_dir = "orthogonal_matrices"
