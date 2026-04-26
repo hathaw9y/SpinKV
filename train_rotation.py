@@ -14,7 +14,10 @@ def parse_args():
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--act_dir", type=str, default="activations")
     p.add_argument("--out_dir", type=str, default="orthogonal_matrices")
-    p.add_argument("--block_size", type=int, default=128)
+    p.add_argument("--group_size", type=int, default=128,
+                   help="BFP group size used for group-wise variance loss")
+    p.add_argument("--block_size", type=int, default=None,
+                   help="deprecated alias of --group_size")
     p.add_argument("--num_steps", type=int, default=1000)
     p.add_argument("--lr", type=float, default=1e-2)
     p.add_argument("--tol", type=float, default=1e-4)
@@ -46,13 +49,24 @@ def _flatten_samples(x: torch.Tensor, max_samples: int) -> torch.Tensor:
     return x
 
 
+def bfp_group_variance_loss(Y: torch.Tensor, group_size: int) -> torch.Tensor:
+    """BFP 공유 exponent 단위(group) 안에서 |activation| 분산을 낮춘다."""
+    D = Y.shape[-1]
+    if D % group_size != 0:
+        raise ValueError(f"hidden dim {D} is not divisible by group_size={group_size}")
+
+    num_groups = D // group_size
+    Y_abs = Y.abs()
+    Y_group = Y_abs.reshape(*Y_abs.shape[:-1], num_groups, group_size)
+    return Y_group.var(dim=-1, unbiased=False).mean()
+
+
 def train_orthogonal_matrix(
-    X, block_size, num_steps=1000, lr=1e-2, tol=1e-4, atol=1e-8,
+    X, group_size, num_steps=1000, lr=1e-2, tol=1e-4, atol=1e-8,
     patience=100, verbose=True,
 ):
     D = X.shape[-1]
-    assert D % block_size == 0
-    num_blocks = D // block_size
+    assert D % group_size == 0
 
     device = X.device
     X_fp32 = X.float()
@@ -68,9 +82,7 @@ def train_orthogonal_matrix(
         Q = torch.linalg.solve(I + S_mat, I - S_mat)
 
         Y = X_fp32 @ Q
-        Y_abs = Y.abs()
-        Y_blocks = Y_abs.reshape(*Y_abs.shape[:-1], num_blocks, block_size)
-        loss = Y_blocks.var(dim=-1, unbiased=False).mean()
+        loss = bfp_group_variance_loss(Y, group_size)
 
         loss.backward()
         optimizer.step()
@@ -99,7 +111,7 @@ def _train_one_matrix(x: torch.Tensor, args) -> tuple[torch.Tensor, float]:
     x = _flatten_samples(x, args.max_samples).to(args.device)
     Q, loss = train_orthogonal_matrix(
         x,
-        block_size=args.block_size,
+        group_size=args.group_size,
         num_steps=args.num_steps,
         lr=args.lr,
         tol=args.tol,
@@ -129,9 +141,9 @@ def _train_and_save(act_root: str, out_root: str, kind: str,
 
     print(f"\n=== {kind} rotated={rotated} ===")
     x = torch.load(path, map_location="cpu")
-    if x.shape[-1] % args.block_size != 0:
+    if x.shape[-1] % args.group_size != 0:
         raise ValueError(
-            f"{kind} hidden dim {x.shape[-1]} is not divisible by block_size={args.block_size}"
+            f"{kind} hidden dim {x.shape[-1]} is not divisible by group_size={args.group_size}"
         )
 
     if kind == 'lm_head_input':
@@ -148,6 +160,8 @@ def _train_and_save(act_root: str, out_root: str, kind: str,
 
 def main():
     args = parse_args()
+    if args.block_size is not None:
+        args.group_size = args.block_size
     transformers.set_seed(args.seed)
 
     model_dir = _model_dir_name(args.model)
