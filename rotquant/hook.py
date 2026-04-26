@@ -17,6 +17,9 @@ class Hook:
     bfp_bits = 8
     bfp_block_size = 128
     offline = False
+    head_rotate = False
+    orth_dir = "orthogonal_matrices"
+    model_dir = None
 
     def __init__(self):
         # rotated activations

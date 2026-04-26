@@ -16,8 +16,10 @@ def parse_args():
     p.add_argument("--ppl_seq_len", type=int, default=2048)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", type=str, default="cuda")
-    p.add_argument("--rotate", type=str, choices=["hadamard"], default=None,
+    p.add_argument("--rotate", type=str, choices=["hadamard", "orthogonal"], default=None,
                    help="rotation 방식 선택")
+    p.add_argument("--head_rotate", action="store_true",
+                   help="RoPE 이후 Q/K head-dim rotation 적용")
     p.add_argument("--offline", action="store_true",
                    help="MLP/FFN online rotation 비활성화")
     p.add_argument("--collect_qkv", action="store_true", help="Collecting QKV")
@@ -37,6 +39,7 @@ def parse_args():
     p.add_argument("--bfp_block_size", type=int, default=128)
     p.add_argument("--act_dir", type=str, default="activations")
     p.add_argument("--cb_dir", type=str, default="codebooks")
+    p.add_argument("--orth_dir", type=str, default="orthogonal_matrices")
     return p.parse_args()
 
 
@@ -98,9 +101,12 @@ def _build_hook(args, model_dir: str) -> Hook:
     hook.bfp_bits = args.bfp_bits
     hook.bfp_block_size = args.bfp_block_size
     hook.offline = args.offline
+    hook.head_rotate = args.head_rotate
+    hook.orth_dir = args.orth_dir
+    hook.model_dir = model_dir
 
     if hook.cq:
-        rotated = args.rotate == 'hadamard'
+        rotated = args.rotate is not None
         cb_root = os.path.join(args.cb_dir, model_dir)
 
         def _cb(kind):
@@ -241,21 +247,21 @@ def main():
 
     hook = _build_hook(args, model_dir)
 
-    rotate = args.rotate == 'hadamard'
+    rotated = args.rotate is not None
     print(f"Apply rotate={args.rotate or 'none'}")
-    apply_rotate(model, args.device, hook, rotate=rotate)
+    apply_rotate(model, args.device, hook, rotate=args.rotate)
 
     if args.collect_qkv:
         print("Collect QKV from Wikitext2")
         collect_qkv_wikitext(model, tokenizer, hook)
-        _save_activations(model, hook, model_dir, rotated=rotate, act_dir=args.act_dir)
+        _save_activations(model, hook, model_dir, rotated=rotated, act_dir=args.act_dir)
     elif args.collect_act:
         print("Collect Normalized Activation from Wikitext2")
         handles = _register_act_hooks(model, hook)
         collect_act_wikitext(model, tokenizer, device=args.device)
         for handle in handles:
             handle.remove()
-        _save_act_activations(hook, model_dir, rotated=rotate, act_dir=args.act_dir)
+        _save_act_activations(hook, model_dir, rotated=rotated, act_dir=args.act_dir)
     else:
         print("\n--- PPL evaluation on WikiText-2 ---")
         ppl = eval_ppl_wikitext(model, tokenizer, seq_len=args.ppl_seq_len, device=args.device)
