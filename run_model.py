@@ -18,8 +18,8 @@ def parse_args():
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--rotate", type=str, choices=["hadamard", "orthogonal"], default=None,
                    help="rotation 방식 선택")
-    p.add_argument("--head_rotate", action="store_true",
-                   help="RoPE 이후 Q/K head-dim rotation 적용")
+    p.add_argument("--head_rotate", type=str, choices=["hadamard"], default=None,
+                   help="RoPE 이후 Q/K head-dim rotation 방식")
     p.add_argument("--offline", action="store_true",
                    help="MLP/FFN online rotation 비활성화")
     p.add_argument("--collect_qkv", action="store_true", help="Collecting QKV")

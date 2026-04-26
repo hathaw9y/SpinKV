@@ -52,7 +52,7 @@ def _apply_llama_hadamard_rotate(model, device, hook) -> None:
 
     R_res = random_hadamard_matrix(hidden, device=device)
     R_mlp = random_hadamard_matrix(intermediate, device=device)
-    R_head = random_hadamard_matrix(head_dim, device=device) if hook.head_rotate else None
+    R_head = _head_rotation(model, device, hook)
 
     absorb_R_into_embedding(model, R_res)
 
@@ -85,7 +85,7 @@ def _apply_opt_hadamard_rotate(model, device, hook) -> None:
 
     R_res = random_hadamard_matrix(hidden, device=device)
     R_ffn = random_hadamard_matrix(ffn_dim, device=device)
-    R_head = random_hadamard_matrix(head_dim, device=device) if hook.head_rotate else None
+    R_head = _head_rotation(model, device, hook)
 
     absorb_R_into_embedding(model, R_res)
 
@@ -112,8 +112,7 @@ def _apply_llama_orthogonal_rotate(model, device, hook) -> None:
     R_attn = _load_orthogonal(hook, 'self_attn_input', device)
     R_mlp = _load_orthogonal(hook, 'mlp_input', device)
     R_lm = _load_orthogonal(hook, 'lm_head_input', device)
-    head_dim = model.config.hidden_size // model.config.num_attention_heads
-    R_head = random_hadamard_matrix(head_dim, device=device) if hook.head_rotate else None
+    R_head = _head_rotation(model, device, hook)
 
     for layer_idx, layer in enumerate(model.model.layers):
         attn, mlp = layer.self_attn, layer.mlp
@@ -146,8 +145,7 @@ def _apply_opt_orthogonal_rotate(model, device, hook) -> None:
     R_attn = _load_orthogonal(hook, 'self_attn_input', device)
     R_mlp = _load_orthogonal(hook, 'mlp_input', device)
     R_lm = _load_orthogonal(hook, 'lm_head_input', device)
-    head_dim = model.config.hidden_size // model.config.num_attention_heads
-    R_head = random_hadamard_matrix(head_dim, device=device) if hook.head_rotate else None
+    R_head = _head_rotation(model, device, hook)
 
     for layer_idx, layer in enumerate(model.model.decoder.layers):
         attn = layer.self_attn
@@ -248,8 +246,10 @@ def _patch_opt_decoder_layer(layer, R_attn, R_mlp, R_next) -> None:
 
 
 def _head_rotation(model, device, hook):
-    if not hook.head_rotate:
+    if hook.head_rotate is None:
         return None
+    if hook.head_rotate != 'hadamard':
+        raise ValueError(f"Unsupported head_rotate: {hook.head_rotate}")
     if model.model_type == 'llama2':
         head_dim = model.config.hidden_size // model.config.num_attention_heads
     elif model.model_type == 'opt':
