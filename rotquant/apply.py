@@ -3,8 +3,6 @@ import types
 import torch
 import torch.nn as nn
 
-from hadamard_utils import random_hadamard_matrix
-
 from .fusion import fuse_norms
 from .rotation import (
     absorb_R_input, absorb_R_output, absorb_R_into_embedding,
@@ -12,6 +10,11 @@ from .rotation import (
 )
 from .attention.llama import patch_llama_attention
 from .attention.opt import patch_opt_attention
+
+
+def _random_hadamard_matrix(size: int, device):
+    from hadamard_utils import random_hadamard_matrix
+    return random_hadamard_matrix(size, device=device)
 
 
 def add_model_type(model) -> None:
@@ -50,8 +53,8 @@ def _apply_llama_hadamard_rotate(model, device, hook) -> None:
     intermediate = model.config.intermediate_size
     head_dim = hidden // model.config.num_attention_heads
 
-    R_res = random_hadamard_matrix(hidden, device=device)
-    R_mlp = random_hadamard_matrix(intermediate, device=device)
+    R_res = _random_hadamard_matrix(hidden, device=device)
+    R_mlp = _random_hadamard_matrix(intermediate, device=device)
     R_head = _qk_rotation(model, device, hook)
 
     absorb_R_into_embedding(model, R_res)
@@ -83,8 +86,8 @@ def _apply_opt_hadamard_rotate(model, device, hook) -> None:
     if model.lm_head.weight.data_ptr() == model.model.decoder.embed_tokens.weight.data_ptr():
         model.lm_head.weight = nn.Parameter(model.lm_head.weight.data.clone())
 
-    R_res = random_hadamard_matrix(hidden, device=device)
-    R_ffn = random_hadamard_matrix(ffn_dim, device=device)
+    R_res = _random_hadamard_matrix(hidden, device=device)
+    R_ffn = _random_hadamard_matrix(ffn_dim, device=device)
     R_head = _qk_rotation(model, device, hook)
 
     absorb_R_into_embedding(model, R_res)
@@ -170,6 +173,10 @@ def _apply_opt_orthogonal_rotate(model, device, hook) -> None:
 
 
 def _patch_llama_decoder_layer(layer, R_attn, R_mlp, R_next) -> None:
+    layer._spinkv_R_attn = R_attn
+    layer._spinkv_R_mlp = R_mlp
+    layer._spinkv_R_next = R_next
+
     def forward_fn(
         self, hidden_states, attention_mask=None, position_ids=None,
         past_key_value=None, output_attentions=False, use_cache=False, **kwargs,
@@ -205,6 +212,10 @@ def _patch_llama_decoder_layer(layer, R_attn, R_mlp, R_next) -> None:
 
 
 def _patch_opt_decoder_layer(layer, R_attn, R_mlp, R_next) -> None:
+    layer._spinkv_R_attn = R_attn
+    layer._spinkv_R_mlp = R_mlp
+    layer._spinkv_R_next = R_next
+
     def forward_fn(
         self, hidden_states, attention_mask=None, layer_head_mask=None,
         output_attentions=False, use_cache=False, past_key_value=None,
@@ -256,7 +267,7 @@ def _qk_rotation(model, device, hook):
         head_dim = model.config.hidden_size // model.config.num_attention_heads
     else:
         raise ValueError(f"Unsupported model_type: {model.model_type}")
-    return random_hadamard_matrix(head_dim, device=device)
+    return _random_hadamard_matrix(head_dim, device=device)
 
 
 def _patch_attention_only(model, device, hook) -> None:
