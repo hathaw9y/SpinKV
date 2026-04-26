@@ -75,7 +75,13 @@ def train_orthogonal_matrix(
     I = torch.eye(D, device=device, dtype=torch.float32)
     optimizer = optim.Adam([A], lr=lr)
 
+    with torch.no_grad():
+        init_loss = bfp_group_variance_loss(X_fp32, group_size).item()
+    if verbose:
+        print(f"    identity loss {init_loss:.6f}")
+
     best_loss, bad = float('inf'), 0
+    best_Q = None
     for step in range(num_steps):
         optimizer.zero_grad()
         S_mat = A - A.T
@@ -92,6 +98,7 @@ def train_orthogonal_matrix(
         threshold = best_loss - max(best_loss * tol, atol)
         if best_loss == float('inf') or cur < threshold:
             best_loss, bad = cur, 0
+            best_Q = Q.detach().clone()
         else:
             bad += 1
         if bad >= patience:
@@ -100,6 +107,9 @@ def train_orthogonal_matrix(
             break
         if verbose and (step % 100 == 0):
             print(f"    step {step:5d} | loss {cur:.6f}")
+
+    if best_Q is not None:
+        return best_Q, best_loss
 
     with torch.no_grad():
         S_mat = A - A.T
