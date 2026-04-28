@@ -23,7 +23,7 @@ def convert2fp16(x: torch.Tensor, block_size: int = 128,
     if mbits == 5:
         mantissa_truncated = torch.where(
             mantissa_truncated == 1,
-            torch.zeros_like(mantissa_truncated),
+            torch.full_like(mantissa_truncated, 2),
             mantissa_truncated,
         )
 
