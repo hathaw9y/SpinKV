@@ -20,6 +20,12 @@ def convert2fp16(x: torch.Tensor, block_size: int = 128,
     truncate_bits = 11 - mbits + 1
     round_bit = (mantissa_shifted >> (truncate_bits - 1)) & 1
     mantissa_truncated = ((mantissa_shifted >> truncate_bits) + round_bit)
+    if mbits == 5:
+        mantissa_truncated = torch.where(
+            mantissa_truncated == 1,
+            torch.zeros_like(mantissa_truncated),
+            mantissa_truncated,
+        )
 
     sign = ((int_bits >> 15) & 0x1).half()
     mantissa_signed = mantissa_truncated.to(torch.int16) * (1 - 2 * sign)
