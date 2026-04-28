@@ -26,6 +26,8 @@ def convert2fp16(x: torch.Tensor, block_size: int = 128,
             torch.full_like(mantissa_truncated, 2),
             mantissa_truncated,
         )
+    max_mantissa = (1 << (mbits - 1)) - 1
+    mantissa_truncated = mantissa_truncated.clamp(max=max_mantissa)
 
     sign = ((int_bits >> 15) & 0x1).half()
     mantissa_signed = mantissa_truncated.to(torch.int16) * (1 - 2 * sign)
